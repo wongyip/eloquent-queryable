@@ -149,6 +149,16 @@ class Queryable
     }
     
     /**
+     * Retrieve the options.
+     * 
+     * @return QueryOptions
+     */
+    public function getOptions()
+    {
+        return $this->options;
+    }
+        
+    /**
      * Compose an array of Eloquent WHERE coniditions based on given paramters and input filters.
      *
      * @param array $params       Preset where parameters, applied before filters.
