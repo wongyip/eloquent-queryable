@@ -1,0 +1,24 @@
+{
+    "name": "wongyip/eloquent-queryable",
+    "description": "Simplified query with Laravel Eloquent.",
+    "homepage": "https://github.com/wongyip/eloquent-queryable",
+    "license": "N/A",
+    "authors": [
+        {
+            "name": "Wongyip",
+            "email": "wongyip@outlook.com",
+            "homepage": "https://gitlab.lb.polyu.edu.hk"
+        }
+    ],
+    "require": {
+        "php": ">=7.0.0",
+        "illuminate/http": ">=5.5.0",
+        "illuminate/database": ">=5.5.0",
+        "illuminate/support": ">=5.5.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Wongyip\\Laravel\\Queryable\\": "src"
+        }
+    }
+}
