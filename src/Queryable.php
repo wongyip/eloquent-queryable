@@ -44,7 +44,7 @@ class Queryable
     /**
      * An abstract class facilitates typical Eloquent Model query tasks.
      * 
-     * Note on options: setOptions() > $forceOptions > request()->input(...)
+     * Note on options: setOptions() > $forceOptions > Request::input()
      * 
      * @author Yipli
      * 

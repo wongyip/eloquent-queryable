@@ -23,9 +23,11 @@ class QueryResult
     {
         $this->total = $total;
         $this->rows = $rows;
+        // Expose options
         if ($options) {
             $this->options = $options;
         }
+        // Expose params
         if ($params) {
             $this->params = $params;
         }

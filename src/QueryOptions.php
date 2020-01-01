@@ -21,6 +21,7 @@ class QueryOptions
     
     /**
      * Absorb property-values / key-values from given object / array, which are already exist in $this.
+     * 
      * NOTE: this method DOES NOT create new property.
      *
      * @param object|array $properties
