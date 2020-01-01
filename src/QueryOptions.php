@@ -3,14 +3,14 @@
 class QueryOptions
 {
     public $sort;
-    public $order = 'asc';
+    public $order;
     public $limit;
-    public $offset = 0;
+    public $offset;
     
     /**
-     * Basic querying options (default: sort = 'asc', offset = 0).
+     * Basic querying options.
      * 
-     * @param array $properties  Override defaults
+     * @param array $properties  Initial options.
      */
     public function __construct($properties = null)
     {
