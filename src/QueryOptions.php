@@ -26,7 +26,6 @@ class QueryOptions
      *
      * @param object|array $properties
      * @param boolean $update_null_value
-     * @return boolean
      */
     public function set($properties, $update_null_value = true)
     {
@@ -39,8 +38,19 @@ class QueryOptions
                     }
                 }
             }
-            return true;
         }
-        return false;
+        $this->patch();
+    }
+    
+    /**
+     * Patch invaid options.
+     */
+    private function patch()
+    {
+        if ($this->limit) { 
+            if (!$this->offset) {
+                $this->offset = 0;
+            }
+        }
     }
 }
