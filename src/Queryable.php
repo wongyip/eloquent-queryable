@@ -1,8 +1,8 @@
 <?php namespace Wongyip\Laravel\Queryable;
 
-use Illuminate\Http\Request;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Request;
 
 class Queryable
 {
@@ -18,6 +18,11 @@ class Queryable
      * @var array
      */
     public $params;
+    /**
+     * Key-value pairs of "display field" => "sorting field".
+     * @var array
+     */
+    protected $sortReplacements;
     /**
      * @var array
      */
@@ -79,7 +84,27 @@ class Queryable
         // Instantiate model and apply conditions. Note that conditions are set
         // on class instantiate, not changeable on runtime.
         $model = new $this->className;
-        $this->model = $model->where($this->conditions);
+        
+        foreach ($this->conditions as $cond) {
+            if (is_array($cond)) {
+                if (count($cond) === 3) {
+                    // Convert to whereIn()
+                    if ($cond[1] === 'in') {
+                        $model = $model->whereIn($cond[0], $cond[2]);
+                    }
+                    else {
+                        $model = $model->where($cond[0], $cond[1], $cond[2]);
+                    }
+                }
+                elseif (count($cond) === 2) {
+                    $model = $model->where($cond[0], $cond[1]);
+                }
+                else {
+                    throw new \Exception('Invalid number of parameters.');
+                }
+            }
+        }
+        $this->model = $model;
     }
     
     /**
@@ -125,6 +150,7 @@ class Queryable
             }
             
             // Sorting
+            $sort = (is_array($this->sortReplacements) && key_exists($sort, $this->sortReplacements)) ? $this->sortReplacements[$sort] : $sort;
             if ($sort) {
                 $model = $order ? $model->orderBy($sort, $order) : $model->orderBy($sort);
             }
@@ -372,4 +398,19 @@ class Queryable
     {
         $this->options->absorbExisting($overrideOptions);
     }
+    
+    /**
+     * Replce column name(s) for sorting.
+     * 
+     * E.g. field1 for display, field2 for sorting, input ['field1' => 'field2']. 
+     * 
+     * @param array $replacements
+     * @return \Wongyip\Laravel\Queryable\Queryable
+     */
+    public function sortReplacements($sortReplacements)
+    {
+        $this->sortReplacements = $sortReplacements;
+        return $this;
+    }
+    
 }
