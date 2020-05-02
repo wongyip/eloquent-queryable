@@ -1,40 +1,50 @@
 <?php namespace Wongyip\Laravel\Queryable;
 
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class Queryable
 {
     /**
-     * @var Model|Builder
+     * Will tale these inputs from reques as $options.
+     * @var array
      */
-    private $model;
+    static $acceptedOptions = ['sort', 'order', 'limit', 'offset'];
+    /**
+     * @var \Illuminate\Database\Eloquent\Model|\Illuminate\Database\Query\Builder
+     */
+    protected $model;
     /**
      * @var string
      */
-    public $className;
+    protected $className;
+    /**
+     * Database table name.
+     * @var string
+     */
+    protected $table;
     /**
      * @var array
      */
-    public $params;
+    protected $params;
     /**
-     * Key-value pairs of "display field" => "sorting field".
+     * Key-value pairs of display-sort columns mapping.
      * @var array
      */
-    protected $sortReplacements;
-    /**
-     * @var array
-     */
-    public $filterables;
+    protected $realSortColumns;
     /**
      * @var array
      */
-    public $forceOptions;
+    protected $filterables;
     /**
      * @var array
      */
-    public $columns;
+    protected $forceOptions;
+    /**
+     * @var array
+     */
+    protected $columns;
     /**
      * Where conditions accepted by the Eloquent\Model::where() method.
      * @var array
@@ -45,66 +55,41 @@ class Queryable
      * @var QueryOptions
      */
     protected $options;
+    /**
+     * Whether the conditions and options are parsed.
+     * @var boolean
+     */
+    protected $parsed;
     
     /**
      * An abstract class facilitates typical Eloquent Model query tasks.
      * 
      * Note on options: setOptions() > $forceOptions > Request::input()
      * 
-     * @author Yipli
+     * @author Wongyip
      * 
-     * @param string  $className     Class name of an Eloquent Model (or Eloquent Builder).
+     * @param string  $className     Class name of an Eloquent Model.
      * @param array   $params        Predefined query parameters.
      * @param array   $filterables   Accepted query parameters from the request.
      * @param array   $forceOptions  Set sort, order, limit, offset option(s) here to ignore certain inputs from the request.
      * @param array   $columns       Columns to get.
      */
     public function __construct($className, $params = null, $filterables = null, $forceOptions = null, $columns = null)
-    {
-        $this->className    = $className;
-        $this->params       = $params;
-        $this->filterables  = $filterables;
-        $this->forceOptions = $forceOptions;
-        $this->columns      = $columns;
-        
+    {   
         // Check check
-        if (!class_exists($this->className)) {
-            throw new \Exception('Class does not exists ' . $this->className);
+        if (!class_exists($className)) {
+            throw new \Exception('Class does not exists ' . $className);
         }
-        if (!(new $this->className() instanceof Model)) {
-            throw new \Exception('Class must be Eloquent Model: ' . $this->className);
+        $testModel = new $className();
+        if (!(new $className() instanceof Model)) {
+            throw new \Exception('Class must be Eloquent Model: ' . $className);
         }
+        $this->table = $testModel->getTable();
         
-        // Conditions
-        $this->conditions = self::makeConditions($this->params, $this->filterables);
-        
-        // Options
-        $this->options = self::makeOptions($this->forceOptions);
-        
-        // Instantiate model and apply conditions. Note that conditions are set
-        // on class instantiate, not changeable on runtime.
-        $model = new $this->className;
-        
-        foreach ($this->conditions as $cond) {
-            if (is_array($cond)) {
-                if (count($cond) === 3) {
-                    // Convert to whereIn()
-                    if ($cond[1] === 'in') {
-                        $model = $model->whereIn($cond[0], $cond[2]);
-                    }
-                    else {
-                        $model = $model->where($cond[0], $cond[1], $cond[2]);
-                    }
-                }
-                elseif (count($cond) === 2) {
-                    $model = $model->where($cond[0], $cond[1]);
-                }
-                else {
-                    throw new \Exception('Invalid number of parameters.');
-                }
-            }
-        }
-        $this->model = $model;
+        // Set up
+        $this->className = $className;
+        $this->forceOptions = is_array($forceOptions) ? $forceOptions : [];
+        $this->setColumns($columns)->setFilterables($filterables)->setOptions([])->setParams($params);
     }
     
     /**
@@ -114,14 +99,14 @@ class Queryable
      */
     public function count()
     {
-        if ($this->model instanceof Model || $this->model instanceof Builder) {
-            return $this->model->count();
+        if ($model = $this->model()) {
+            return $model->count();
         }
         return null;
     }
     
     /**
-     * Execute the query.
+     * Execute the query and retrieve the result.
      *
      * @param boolean $outputOptions  Attach query options in result, default false.
      * @param boolean $outputParams   Attach query parameters in result, default false.
@@ -133,7 +118,7 @@ class Queryable
         // Init
         $rows = [];
         
-        // Count
+        // Count (and actually instantiate the model with conditions in place)
         if ($total = $this->count()) {
             
             // Localize
@@ -149,8 +134,12 @@ class Queryable
                 throw new \Exception('LIMIT must not omitted when OFFSET is set.');
             }
             
-            // Sorting
-            $sort = (is_array($this->sortReplacements) && key_exists($sort, $this->sortReplacements)) ? $this->sortReplacements[$sort] : $sort;
+            // Get the real sorting column.
+            $sort = (is_array($this->realSortColumns) && key_exists($sort, $this->realSortColumns)) ? $this->realSortColumns[$sort] : $sort;
+            
+            // Make sure the sorting column exists to prevent query exception. 
+            $sort = Schema::hasColumn($this->table, $sort) ? $sort : false;
+            
             if ($sort) {
                 $model = $order ? $model->orderBy($sort, $order) : $model->orderBy($sort);
             }
@@ -175,15 +164,55 @@ class Queryable
     }
     
     /**
-     * Retrieve the options.
+     * Retrieve the columns listing.
      * 
+     * @return array
+     */
+    public function getColumns()
+    {
+        return $this->columns;
+    }
+    
+    /**
+     * Retrieve the filterable columns.
+     * 
+     * @return array
+     */
+    public function getFilterables()
+    {
+        return $this->filterables;
+    }
+    
+    /**
+     * Retrieve the options.
+     *
      * @return QueryOptions
      */
     public function getOptions()
     {
         return $this->options;
     }
-        
+    
+    /**
+     * Retrieve the options.
+     *
+     * @return array
+     */
+    public function getParams()
+    {
+        return $this->params;
+    }
+    
+    /**
+     * Retrieve the display-sort columns mapping.
+     *
+     * @return array
+     */
+    public function getRealSorting()
+    {
+        return $this->realSortColumns;
+    }
+    
     /**
      * Compose an array of Eloquent WHERE coniditions based on given paramters and input filters.
      *
@@ -227,38 +256,82 @@ class Queryable
     }
     
     /**
-     * Merge options from request with force options (override inputs).
-     * Output array with 'sort', 'order', 'limit' and 'offset' elements.
+     * Merge QueryOptions from request with override options (override inputs).
      *
-     * @param array $forceOptions  Optional, override input option(s) if given.
-     *
+     * @param array $overrideOptions Optional, override input option(s) if given.
      * @return QueryOptions
      */
-    static function makeOptions($forceOptions = null)
+    static function makeOptions($overrideOptions = null)
     {
         // Get inputs
-        $setOptions = [];
+        $options = [];
         $request = \Illuminate\Support\Facades\Request::getFacadeRoot();
         if ($request instanceof Request) {
-            if ($request->has('sort')) {
-                $setOptions['sort'] = $request->input('sort');
-            }
-            if ($request->has('order')) {
-                $setOptions['order'] = $request->input('order');
-            }
-            if ($request->has('offset')) {
-                $setOptions['offset'] = $request->input('offset');
-            }
-            if ($request->has('limit')) {
-                $setOptions['limit'] = $request->input('limit');
+            foreach (self::$acceptedOptions as $key) { 
+                if ($request->has($key)) {
+                    $options[$key] = $request->input($key);
+                }
             }
         }
-        return new QueryOptions(array_merge($setOptions, is_array($forceOptions) ? $forceOptions : []));
+        return new QueryOptions(array_merge($options, is_array($overrideOptions) ? $overrideOptions : []));
     }
     
     /**
-     * Parse and input filter into an Eloquent WHERE condition.
+     * Instantiate the model with conditions in place.
      *
+     * @throws \Exception
+     * @return \Illuminate\Database\Eloquent\Model|\Illuminate\Database\Query\Builder
+     */
+    protected function model()
+    {
+        $model = new $this->className;
+        foreach ($this->conditions as $cond) {
+            if (is_array($cond)) {
+                if (count($cond) === 3) {
+                    // Convert to whereIn()
+                    if ($cond[1] === 'in') {
+                        $model = $model->whereIn($cond[0], $cond[2]);
+                    }
+                    // Typical 3 params where()
+                    else {
+                        $model = $model->where($cond[0], $cond[1], $cond[2]);
+                    }
+                }
+                elseif (count($cond) === 2) {
+                    // Typical 2 params where()
+                    $model = $model->where($cond[0], $cond[1]);
+                }
+                else {
+                    throw new \Exception('Invalid number of parameters.');
+                }
+            }
+        }
+        $this->model = $model;
+        return $this->model;
+    }
+    
+    /**
+     * Convert column@table back to table.column format.
+     *
+     * @param string $column
+     * @return string
+     */
+    static function parseColumn($column)
+    {
+        $matches = [];
+        if (preg_match("/(.*)@(.*)/", $column, $matches)) {
+            $table = $matches[2];
+            $column = $matches[1];
+            return "$table.$column";
+        }
+        return $column;
+    }
+    
+    /**
+     * Parse and input filter into an Eloquent WHERE condition array.
+     *
+     * @todo documentations needed!!
+     * 
      * @param string $filter
      * @param string $value
      * @return array|boolean|NULL
@@ -354,23 +427,6 @@ class Queryable
     }
     
     /**
-     * Convert column@table back to table.column format.
-     *
-     * @param string $column
-     * @return string
-     */
-    static function parseColumn($column)
-    {
-        $matches = [];
-        if (preg_match("/(.*)@(.*)/", $column, $matches)) {
-            $table = $matches[2];
-            $column = $matches[1];
-            return "$table.$column";
-        }
-        return $column;
-    }
-    
-    /**
      * Translation of token-values if defined, or return the value untouched.
      *
      * @param string $value
@@ -390,27 +446,68 @@ class Queryable
     }
     
     /**
-     * Change any options already set, including those in $forceOptions.
+     * Set the columns to retrieve from query.
      *
-     * @param array $overrideOptions
+     * @param array $params
+     * @return \Wongyip\Laravel\Queryable\Queryable
      */
-    public function setOptions($overrideOptions)
+    public function setColumns($columns)
     {
-        $this->options->absorbExisting($overrideOptions);
+        $this->columns = $columns;
+        return $this;
     }
     
     /**
-     * Replce column name(s) for sorting.
-     * 
-     * E.g. field1 for display, field2 for sorting, input ['field1' => 'field2']. 
+     * Set the query params.
+     *
+     * @param array $params
+     * @return \Wongyip\Laravel\Queryable\Queryable
+     */
+    public function setParams($params)
+    {
+        $this->params = $params;
+        $this->conditions = self::makeConditions($this->params, $this->filterables);
+        return $this;
+    }
+    
+    /**
+     * Set the filterable columns.
+     *
+     * @param array $filterables
+     * @return \Wongyip\Laravel\Queryable\Queryable
+     */
+    public function setFilterables($filterables)
+    {
+        $this->filterables = $filterables;
+        $this->conditions = self::makeConditions($this->params, $this->filterables);
+        return $this;
+    }
+    
+    /**
+     * Set the query options.
+     * Note that options set in $forceOptions will retains unless $overrideForceOptions is true.
+     *
+     * @param array   $queryOptions
+     * @param boolean $overrideForceOptions
+     * @return \Wongyip\Laravel\Queryable\Queryable
+     */
+    public function setOptions($queryOptions, $overrideForceOptions = false)
+    {
+        $queryOptions = $overrideForceOptions ? array_merge($this->forceOptions, $queryOptions) : array_merge($queryOptions, $this->forceOptions);
+        $this->options = self::makeOptions($queryOptions);
+        return $this;
+    }
+    
+    /**
+     * Set the display-sort columns mapping.
+     * E.g. input ['field1' => 'field2'] for displaying field1 and sort with field2. 
      * 
      * @param array $replacements
      * @return \Wongyip\Laravel\Queryable\Queryable
      */
-    public function sortReplacements($sortReplacements)
+    public function setRealSorting($realSortColumns)
     {
-        $this->sortReplacements = $sortReplacements;
+        $this->realSortColumns = $realSortColumns;
         return $this;
     }
-    
 }

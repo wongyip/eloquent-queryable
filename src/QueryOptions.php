@@ -47,7 +47,7 @@ class QueryOptions
      */
     private function patch()
     {
-        if ($this->limit) { 
+        if ($this->limit) {
             if (!$this->offset) {
                 $this->offset = 0;
             }
