@@ -2,7 +2,7 @@
     "name": "wongyip/eloquent-queryable",
     "description": "Simplified query with Laravel Eloquent.",
     "homepage": "https://github.com/wongyip/eloquent-queryable",
-    "license": "MTI",
+    "license": "MIT",
     "authors": [
         {
             "name": "Wongyip",

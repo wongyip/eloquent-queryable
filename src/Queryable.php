@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Schema;
 class Queryable
 {
     /**
-     * Will tale these inputs from reques as $options.
+     * Will tale these inputs from request as $options.
      * @var array
      */
     static $acceptedOptions = ['sort', 'order', 'limit', 'offset'];
